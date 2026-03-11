@@ -1,0 +1,112 @@
+---
+import { supabase } from '../lib/supabase';
+
+// 1. Cargamos todos los productos y todos los materiales para los selectores
+const { data: productos } = await supabase.from('productos').select('*').order('nombre');
+const { data: materiales } = await supabase.from('materiales').select('*').order('nombre');
+
+// 2. Traemos las recetas existentes para mostrarlas abajo
+const { data: recetas } = await supabase
+  .from('receta_producto')
+  .select(`
+    id,
+    cantidad_necesaria,
+    productos (nombre),
+    materiales (nombre, unidad_medida)
+  `);
+---
+
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <title>V&M - Asistente de Recetas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 p-6 md:p-10">
+    <div class="max-w-4xl mx-auto">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-extrabold text-slate-800">Asistente de Recetas 🛠️</h1>
+            <a href="/" class="text-blue-600 font-bold">← Volver a Materiales</a>
+        </div>
+
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-10">
+            <h2 class="text-lg font-bold mb-4">Asignar Insumo a un Producto</h2>
+            <form id="receta-form" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                
+                <select id="producto_id" class="border p-2 rounded bg-slate-50" required>
+                    <option value="">Seleccionar Producto...</option>
+                    {productos?.map(p => <option value={p.id}>{p.nombre}</option>)}
+                </select>
+
+                <select id="material_id" class="border p-2 rounded bg-slate-50" required>
+                    <option value="">Seleccionar Material...</option>
+                    {materiales?.map(m => <option value={m.id}>{m.nombre} ({m.unidad_medida})</option>)}
+                </select>
+
+                <input type="number" step="0.01" id="cantidad" placeholder="Cantidad" class="border p-2 rounded" required />
+
+                <button type="submit" class="bg-green-600 text-white font-bold py-2 rounded hover:bg-green-700 transition">
+                    Vincular Insumo
+                </button>
+            </form>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <table class="w-full">
+                <thead class="bg-slate-700 text-white">
+                    <tr>
+                        <th class="p-4 text-left">Producto</th>
+                        <th class="p-4 text-left">Insumo</th>
+                        <th class="p-4 text-center">Cantidad</th>
+                        <th class="p-4 text-center">Acción</th>
+                    </tr>
+                </thead>
+                <tbody id="tabla-recetas">
+                    {recetas?.map(r => (
+                        <tr class="border-b hover:bg-slate-50">
+                            <td class="p-4 font-bold text-slate-700">{r.productos.nombre}</td>
+                            <td class="p-4 text-slate-600">{r.materiales.nombre}</td>
+                            <td class="p-4 text-center">{r.cantidad_necesaria} {r.materiales.unidad_medida}</td>
+                            <td class="p-4 text-center">
+                                <button class="text-red-500 hover:underline delete-btn" data-id={r.id}>Eliminar</button>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        import { supabase } from '../lib/supabase';
+
+        const form = document.getElementById('receta-form');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const producto_id = document.getElementById('producto_id').value;
+            const material_id = document.getElementById('material_id').value;
+            const cantidad_necesaria = parseFloat(document.getElementById('cantidad').value);
+
+            const { error } = await supabase
+                .from('receta_producto')
+                .insert([{ producto_id, material_id, cantidad_necesaria }]);
+
+            if (error) {
+                alert("Error: " + error.message);
+            } else {
+                location.reload();
+            }
+        });
+
+        // Lógica para eliminar una fila de la receta
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const id = btn.getAttribute('data-id');
+                const { error } = await supabase.from('receta_producto').delete().eq('id', id);
+                if (!error) location.reload();
+            });
+        });
+    </script>
+</body>
+</html>

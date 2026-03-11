@@ -1,17 +1,107 @@
 ---
+import { supabase } from '../lib/supabase';
 
+const { data: materiales } = await supabase
+  .from('materiales')
+  .select('*')
+  .order('nombre', { ascending: true });
 ---
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <title>V&M - Inventario y Costos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 p-4 md:p-10">
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-10 flex justify-between items-center">
+            <div>
+                <h1 class="text-4xl font-extrabold text-slate-900">V&M DEPORTES</h1>
+                <p class="text-slate-500">Gestión de Insumos (Materia Prima)</p>
+            </div>
+            <div class="flex gap-4">
+                <a href="/productos" class="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-slate-900">
+                    Ver Productos 📦
+                </a>
+                <a href="/asistente-recetas" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700">
+                    Ir a Recetas 🛠️
+                </a>
+            </div>
+        </header>
+
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-8">
+            <h2 class="text-lg font-bold mb-4 text-slate-700">Añadir Insumo</h2>
+            <form id="material-form" class="grid grid-cols-1 md:grid-cols-7 gap-4">
+                <input type="text" id="nombre" placeholder="Nombre" class="border p-2 rounded col-span-2" required />
+                <select id="unidad_medida" class="border p-2 rounded text-slate-500">
+                    <option value="metros">Metros</option>
+                    <option value="kg">Kilos</option>
+                    <option value="unidad">Unidad</option>
+                </select>
+                <input type="number" step="0.01" id="costo" placeholder="Costo Unit." class="border p-2 rounded" required />
+                <input type="number" step="0.01" id="flete" placeholder="Flete" class="border p-2 rounded" required />
+                <input type="number" step="0.01" id="stock" placeholder="Stock Inicial" class="border p-2 rounded border-blue-300 bg-blue-50" required />
+                <button type="submit" class="bg-blue-600 text-white font-bold py-2 rounded hover:bg-blue-700 transition">
+                    Guardar
+                </button>
+            </form>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <table class="w-full">
+                <thead class="bg-slate-800 text-white text-sm">
+                    <tr>
+                        <th class="p-4 text-left">Material</th>
+                        <th class="p-4 text-center">Costo Total (c/flete)</th>
+                        <th class="p-4 text-center">Stock Actual</th>
+                        <th class="p-4 text-center">Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {materiales?.map((m) => {
+                        const costoTotal = m.costo_unitario + m.costo_flete;
+                        const alertaStock = m.stock_minimo >= m.stock_actual;
+                        return (
+                            <tr class={`border-b transition ${alertaStock ? 'bg-red-50' : 'hover:bg-slate-50'}`}>
+                                <td class="p-4 font-medium text-slate-700">
+                                    {m.nombre} <span class="text-xs text-slate-400">({m.unidad_medida})</span>
+                                </td>
+                                <td class="p-4 text-center font-bold text-slate-800">${costoTotal.toFixed(2)}</td>
+                                <td class={`p-4 text-center font-black ${alertaStock ? 'text-red-600' : 'text-green-600'}`}>
+                                    {m.stock_actual}
+                                </td>
+                                <td class="p-4 text-center">
+                                    {alertaStock ? (
+                                        <span class="bg-red-100 text-red-700 text-xs font-bold px-3 py-1 rounded-full">Bajo Stock</span>
+                                    ) : (
+                                        <span class="bg-green-100 text-green-700 text-xs font-bold px-3 py-1 rounded-full">Óptimo</span>
+                                    )}
+                                </td>
+                            </tr>
+                        )
+                    })}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        import { supabase } from '../lib/supabase';
+        const form = document.getElementById('material-form');
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const nombre = document.getElementById('nombre').value;
+            const unidad_medida = document.getElementById('unidad_medida').value;
+            const costo = parseFloat(document.getElementById('costo').value);
+            const flete = parseFloat(document.getElementById('flete').value);
+            const stock = parseFloat(document.getElementById('stock').value);
+
+            const { error } = await supabase.from('materiales').insert([{ 
+                nombre, unidad_medida, costo_unitario: costo, costo_flete: flete, stock_actual: stock, stock_minimo: 5 
+            }]);
+            if (!error) location.reload();
+        });
+    </script>
+</body>
 </html>
