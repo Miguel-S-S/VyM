@@ -1,8 +1,8 @@
 ---
 import { supabase } from '../lib/supabase';
 
-// Traemos los productos, sus recetas y calculamos todo
-const { data: productos } = await supabase
+// 1. Traemos los datos crudos desde la base de datos
+const { data, error } = await supabase
   .from('productos')
   .select(`
     *,
@@ -12,6 +12,45 @@ const { data: productos } = await supabase
     )
   `)
   .order('nombre');
+
+// 2. Procesamos la Lógica Matemática en el Frontmatter
+// Aquí TypeScript funciona al 100% y no confunde al parser visual
+const productosCalculados = (data || []).map((prod: any) => {
+    const tieneInsumos = prod.receta_producto && prod.receta_producto.length > 0;
+
+    const costoInsumos = prod.receta_producto?.reduce((acc: number, item: any) => {
+        return acc + ((item.materiales.costo_unitario + item.materiales.costo_flete) * item.cantidad_necesaria);
+    }, 0) || 0;
+
+    const costoTotalReal = costoInsumos + (prod.costo_mano_obra || 0);
+
+    let precioVentaFinal = 0;
+    let margenRealAMostrar = 0;
+
+    if (prod.tipo_precio === 'fijo') {
+        precioVentaFinal = prod.precio_venta || 0;
+        margenRealAMostrar = costoTotalReal > 0 ? ((precioVentaFinal / costoTotalReal) - 1) * 100 : 0;
+    } else {
+        const porcentaje = (prod.margen_ganancia || 0) / 100;
+        precioVentaFinal = costoTotalReal * (1 + porcentaje);
+        margenRealAMostrar = prod.margen_ganancia || 0;
+
+        // Redondeo comercial a la centena
+        if (prod.aplicar_redondeo) {
+            precioVentaFinal = Math.round(precioVentaFinal / 100) * 100;
+        }
+    }
+
+    // Empaquetamos el producto original con nuestros cálculos listos para pintar
+    return {
+        ...prod,
+        tieneInsumos,
+        costoInsumos,
+        costoTotalReal,
+        precioVentaFinal,
+        margenRealAMostrar
+    };
+});
 ---
 
 <html lang="es">
@@ -21,70 +60,153 @@ const { data: productos } = await supabase
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-50 p-4 md:p-10">
-    <div class="max-w-6xl mx-auto">
+    <div class="max-w-7xl mx-auto">
         <a href="/" class="text-blue-600 font-bold hover:underline mb-4 inline-block">← Volver a Insumos</a>
         <h1 class="text-4xl font-extrabold text-slate-900 mb-8">Catálogo de Productos Finales</h1>
 
         <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-8">
             <h2 class="text-lg font-bold mb-4 text-slate-700">Crear Elemento Deportivo</h2>
-            <form id="producto-form" class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <input type="text" id="nombre" placeholder="Nombre (ej: Bolsa de 10kg)" class="border p-2 rounded col-span-2" required />
-                <input type="number" step="0.01" id="precio_venta" placeholder="Precio Venta ($)" class="border p-2 rounded" required />
-                <input type="number" id="minutos_confeccion" placeholder="Minutos de Confección" class="border p-2 rounded border-orange-300 bg-orange-50" required />
-                <button type="submit" class="bg-green-600 text-white font-bold py-2 rounded col-span-full md:col-span-1 hover:bg-green-700 transition">
+            <form id="producto-form" class="grid grid-cols-1 md:grid-cols-6 gap-4 items-start">
+                
+                <div class="col-span-2">
+                    <label class="text-xs text-slate-500 font-bold mb-1 block">Nombre del Producto</label>
+                    <input type="text" id="nombre" placeholder="Ej: Pelota 5kg" class="border p-2 rounded w-full" required />
+                </div>
+                
+                <div>
+                    <label class="text-xs text-slate-500 font-bold mb-1 block">Tiempo (Min)</label>
+                    <input type="number" id="minutos_confeccion" placeholder="Ej: 45" class="border p-2 rounded w-full" required />
+                </div>
+
+                <div>
+                    <label class="text-xs text-slate-500 font-bold mb-1 block">Mano de Obra ($)</label>
+                    <input type="number" step="0.01" id="costo_mano_obra" placeholder="Ej: 1500" class="border p-2 rounded border-indigo-300 bg-indigo-50 w-full" required />
+                </div>
+
+                <div class="col-span-2 border border-slate-200 p-3 rounded bg-slate-50">
+                    <label class="text-xs text-slate-800 font-bold mb-2 block">Estrategia de Venta</label>
+                    <select id="tipo_precio" class="border p-1 rounded w-full mb-3 text-sm font-bold text-blue-700">
+                        <option value="margen">Dinámico (Por Margen %)</option>
+                        <option value="fijo">Precio Fijo Manual ($)</option>
+                    </select>
+
+                    <div id="caja_margen" class="flex flex-col gap-2">
+                        <input type="number" step="0.1" id="margen_ganancia" placeholder="Margen % (Ej: 50)" class="border p-2 rounded border-green-300 bg-white w-full" />
+                        <label class="text-xs font-bold text-slate-600 flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="aplicar_redondeo" class="w-4 h-4 accent-green-600" checked />
+                            Redondear a los $100
+                        </label>
+                    </div>
+
+                    <div id="caja_fijo" class="flex flex-col gap-2 hidden">
+                        <input type="number" step="0.01" id="precio_venta" placeholder="Precio Final $ (Ej: 8500)" class="border p-2 rounded border-purple-300 bg-white w-full" />
+                    </div>
+                </div>
+
+                <button type="submit" class="bg-slate-900 text-white font-bold py-3 rounded col-span-full hover:bg-slate-800 transition shadow-md">
                     Guardar Producto
                 </button>
             </form>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {productos?.map((prod) => {
-                const costoProduccion = prod.receta_producto?.reduce((acc, item) => {
-                    const totalMaterial = (item.materiales.costo_unitario + item.materiales.costo_flete) * item.cantidad_necesaria;
-                    return acc + totalMaterial;
-                }, 0);
-
-                return (
-                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 relative">
-                        <span class="absolute top-4 right-4 bg-orange-100 text-orange-800 text-xs font-bold px-2 py-1 rounded">
-                            ⏱️ {prod.minutos_confeccion || 0} min
-                        </span>
-                        
-                        <h2 class="text-xl font-bold text-slate-800 pr-12">{prod.nombre}</h2>
-                        
-                        <ul class="mt-4 text-sm text-slate-600 min-h-[100px]">
-                            {prod.receta_producto?.length > 0 ? prod.receta_producto.map((item) => (
-                                <li class="flex justify-between border-b py-1">
-                                    <span>{item.materiales.nombre} (x{item.cantidad_necesaria})</span>
-                                    <span>${((item.materiales.costo_unitario + item.materiales.costo_flete) * item.cantidad_necesaria).toFixed(2)}</span>
-                                </li>
-                            )) : <li class="text-slate-400 italic">No tiene insumos asignados. Ve a Recetas.</li>}
-                        </ul>
-
-                        <div class="mt-4 pt-4 border-t flex justify-between items-center">
-                            <span class="font-bold text-sm text-slate-500">Costo Total:</span>
-                            <span class="text-2xl font-black text-slate-900">${costoProduccion?.toFixed(2)}</span>
+            {productosCalculados.map((prod) => (
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 relative flex flex-col">
+                    <span class="absolute top-4 right-4 bg-orange-100 text-orange-800 text-xs font-bold px-2 py-1 rounded">
+                        ⏱️ {prod.minutos_confeccion || 0} min
+                    </span>
+                    
+                    <h2 class="text-xl font-bold text-slate-800 pr-12">{prod.nombre}</h2>
+                    
+                    <div class="bg-slate-50 p-3 rounded mt-4 text-sm border border-slate-100">
+                        <div class="flex justify-between text-slate-600 mb-1">
+                            <span>Costo Insumos:</span>
+                            <span>${prod.costoInsumos.toFixed(2)}</span>
+                        </div>
+                        <div class="flex justify-between text-slate-600 border-b border-slate-200 pb-1 mb-1">
+                            <span>Mano de Obra:</span>
+                            <span>+ ${prod.costo_mano_obra?.toFixed(2) || '0.00'}</span>
+                        </div>
+                        <div class="flex justify-between font-bold text-slate-800">
+                            <span>Costo Total:</span>
+                            <span>${prod.costoTotalReal.toFixed(2)}</span>
                         </div>
                     </div>
-                )
-            })}
+
+                    <div class="mt-auto pt-4">
+                        <div class="flex justify-between items-end mb-2">
+                            <div>
+                                <span class={`block text-xs font-bold uppercase ${prod.tipo_precio === 'fijo' ? 'text-purple-600' : 'text-green-600'}`}>
+                                    {prod.tipo_precio === 'fijo' ? 'PRECIO FIJO' : 'MARGEN'} ({prod.margenRealAMostrar.toFixed(1)}%)
+                                </span>
+                                <span class="text-sm font-bold text-slate-500">Precio Público</span>
+                            </div>
+                            <span class="text-3xl font-black text-slate-900">
+                                ${prod.precioVentaFinal.toFixed(prod.aplicar_redondeo && prod.tipo_precio === 'margen' ? 0 : 2)}
+                            </span>
+                        </div>
+
+                        {!prod.tieneInsumos && (
+                            <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 text-xs p-2 rounded flex items-center gap-2 mt-2">
+                                <span>⚠️</span>
+                                <span>Precio base. Faltan insumos en la receta.</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            ))}
         </div>
     </div>
 
     <script>
         import { supabase } from '../lib/supabase';
+
+        // Alternar visualización del tipo de precio
+        const selectTipoPrecio = document.getElementById('tipo_precio');
+        const cajaMargen = document.getElementById('caja_margen');
+        const cajaFijo = document.getElementById('caja_fijo');
+
+        selectTipoPrecio?.addEventListener('change', (e) => {
+            const target = e.target as HTMLSelectElement;
+            if (target.value === 'margen') {
+                cajaMargen?.classList.remove('hidden');
+                cajaFijo?.classList.add('hidden');
+            } else {
+                cajaMargen?.classList.add('hidden');
+                cajaFijo?.classList.remove('hidden');
+            }
+        });
+
+        // Envío del formulario
         const form = document.getElementById('producto-form');
-        form.addEventListener('submit', async (e) => {
+        form?.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const nombre = document.getElementById('nombre').value;
-            const precio_venta = parseFloat(document.getElementById('precio_venta').value);
-            const minutos_confeccion = parseInt(document.getElementById('minutos_confeccion').value);
+            
+            const nombre = (document.getElementById('nombre') as HTMLInputElement).value;
+            const minutos_confeccion = parseInt((document.getElementById('minutos_confeccion') as HTMLInputElement).value) || 0;
+            const costo_mano_obra = parseFloat((document.getElementById('costo_mano_obra') as HTMLInputElement).value) || 0;
+            
+            const tipo_precio = (document.getElementById('tipo_precio') as HTMLSelectElement).value;
+            const aplicar_redondeo = (document.getElementById('aplicar_redondeo') as HTMLInputElement).checked;
+            
+            const margen_ganancia = tipo_precio === 'margen' ? (parseFloat((document.getElementById('margen_ganancia') as HTMLInputElement).value) || 0) : 0;
+            const precio_venta = tipo_precio === 'fijo' ? (parseFloat((document.getElementById('precio_venta') as HTMLInputElement).value) || 0) : 0;
 
             const { error } = await supabase.from('productos').insert([{ 
-                nombre, precio_venta, minutos_confeccion 
+                nombre, 
+                minutos_confeccion,
+                costo_mano_obra,
+                tipo_precio,
+                aplicar_redondeo,
+                margen_ganancia,
+                precio_venta
             }]);
             
-            if (!error) location.reload();
+            if (error) {
+                alert("Error al guardar: " + error.message);
+            } else {
+                location.reload();
+            }
         });
     </script>
 </body>
